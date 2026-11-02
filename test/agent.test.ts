@@ -141,16 +141,20 @@ test("模型可以调用无副作用的当前时间工具，并得到工具结�
   const models = createModels();
   models.setProvider(faux.provider);
   const model = faux.getModel();
+  const calls: { name: string; args: Record<string, unknown> }[] = [];
   try {
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall("get_current_time", { timeZone: "Asia/Shanghai" }), { stopReason: "toolUse" }),
       fauxAssistantMessage("现在是上海时间。"),
     ]);
-    const agent = await openAgent(dbPath, models, model.id, model.provider, { kind: "new" });
+    const agent = await openAgent(dbPath, models, model.id, model.provider, { kind: "new" }, {
+      onToolStart: (name, args) => calls.push({ name, args }),
+    });
     try {
       const result = await sendMessage(agent.conversation, "现在几点？");
       assert.equal(result.answer, "现在是上海时间。");
       assert.equal(faux.state.callCount, 2, "工具结果应触发模型继续回答");
+      assert.deepEqual(calls, [{ name: "get_current_time", args: { timeZone: "Asia/Shanghai" } }]);
       const db = new DatabaseSync(dbPath, { readOnly: true });
       try {
         assert.equal(db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE json_extract(record, '$.kind') = 'pi.tool'").get()?.n, 1);

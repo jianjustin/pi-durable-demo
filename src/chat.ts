@@ -12,7 +12,9 @@ async function main() {
   if (!auth) throw new Error("ChatGPT 登录不可用，请在 Pi 中重新登录。");
   // A one-shot prompt remains script-friendly; interactive use lets the user choose a transcript.
   const choice = prompt ? { kind: "root" as const } : await chooseConversation(listSavedConversations(dbPath));
-  const { harness, conversation } = await openAgent(dbPath, models, modelId, "openai", choice);
+  const { harness, conversation } = await openAgent(dbPath, models, modelId, "openai", choice, {
+    onToolStart: (name, args) => console.log(`工具 > 正在调用 ${name}(${JSON.stringify(args)})`),
+  });
   console.log(`ChatGPT 订阅 · ${modelId}`);
   await runTerminal(harness, conversation, { prompt });
 }
