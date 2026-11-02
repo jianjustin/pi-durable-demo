@@ -13,6 +13,7 @@ import { context, openAgent, readHistory, sendMessage } from "../src/agent.ts";
 import { createSubscriptionModels } from "../src/auth.ts";
 import { runTerminal } from "../src/terminal.ts";
 import { chooseConversation, listSavedConversations } from "../src/sessions.ts";
+import { Todos } from "../src/todos.ts";
 import { openExclusiveStorage } from "../src/storage.ts";
 
 test("同一数据库拒绝其他进程和符号链接重复打开，关闭后可重新进入", async () => {
@@ -169,7 +170,7 @@ test("模型可以调用无副作用的当前时间工具，并得到工具结�
   }
 });
 
-test("项目 Skill 会作为持久化会话的系统提示加载", async () => {
+test("todo-report Skill 会作为持久化会话的系统提示加载", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pi-durable-skills-"));
   const dbPath = join(dir, "session.sqlite");
   const faux = fauxProvider();
@@ -185,8 +186,38 @@ test("项目 Skill 会作为持久化会话的系统提示加载", async () => {
     const agent = await openAgent(dbPath, models, model.id, model.provider, { kind: "new" });
     try {
       assert.equal((await sendMessage(agent.conversation, "请确认你的能力。")).answer, "Skill 已加载。 ");
-      assert.match(requestTranscript, /<skill name=\\"time-awareness\\">/);
-      assert.match(requestTranscript, /call `get_current_time` before answering/);
+      assert.match(requestTranscript, /<skill name=\\"todo-report\\">/);
+      assert.match(requestTranscript, /Use `todo_report`/);
+    } finally {
+      await agent.harness.close(context);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("todo-report 场景会把待办写入会话文档，并通过报告工具读回", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-durable-todos-"));
+  const dbPath = join(dir, "session.sqlite");
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  try {
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("add_todo", { title: "整理演示文档" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("已记下。"),
+      fauxAssistantMessage(fauxToolCall("todo_report", {}), { stopReason: "toolUse" }),
+      fauxAssistantMessage("你目前有 1 项待办：整理演示文档。"),
+    ]);
+    const agent = await openAgent(dbPath, models, model.id, model.provider, { kind: "new" });
+    try {
+      assert.equal((await sendMessage(agent.conversation, "帮我记一个待办：整理演示文档")).answer, "已记下。");
+      assert.deepEqual((await agent.harness.snapshot(Todos, agent.conversation.id, context))?.items, [
+        { id: 1, title: "整理演示文档", status: "open" },
+      ]);
+      assert.equal((await sendMessage(agent.conversation, "给我待办报告")).answer, "你目前有 1 项待办：整理演示文档。");
+      assert.equal(faux.state.callCount, 4);
     } finally {
       await agent.harness.close(context);
     }

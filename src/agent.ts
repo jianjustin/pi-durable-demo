@@ -4,6 +4,7 @@ import { AssistantEntry, createRegistry, defineExtension, Harness, hook, section
 import { openExclusiveStorage } from "./storage.ts";
 import { loadProjectSkillInstructions } from "./skills.ts";
 import { getCurrentTime } from "./tools.ts";
+import { addTodo, todoReport } from "./todos.ts";
 
 export const context = BACKGROUND_CONTEXT;
 
@@ -16,7 +17,7 @@ const agentSettings = (provider: string, modelId: string) => ({
   model: { provider, modelId },
   thinkingLevel: "low" as const,
   instructions: "你是一个简洁、准确的中文助手。根据已有对话回答；没有工具时，不声称已经执行外部操作。",
-  tools: [getCurrentTime],
+  tools: [getCurrentTime, addTodo, todoReport],
 });
 
 type OpenAgentOptions = {
@@ -25,7 +26,7 @@ type OpenAgentOptions = {
 
 const createDemoTools = (onToolStart?: OpenAgentOptions["onToolStart"]) => defineExtension({
   name: "demo-tools",
-  tools: [getCurrentTime],
+  tools: [getCurrentTime, addTodo, todoReport],
   hooks: [hook(ToolTask, {
     beforeTool: (call) => {
       onToolStart?.(call.name, call.arguments);

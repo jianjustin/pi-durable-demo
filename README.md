@@ -59,7 +59,8 @@ npm start
 | `src/terminal.ts` | 显示历史、连续聊天、处理 `/exit` 和退出信号 |
 | `src/agent.ts` | 打开持久化会话，读取历史，提交消息并读回已存储的回复 |
 | `src/skills.ts` | 加载并校验项目内 Agent Skills，再作为稳定的系统提示区段交给 Pi Durable |
-| `skills/time-awareness/SKILL.md` | 当前时间/日期问题的可审阅 Skill 规则 |
+| `skills/todo-report/SKILL.md` | 管理待办、生成待办报告的可审阅 Skill 规则 |
+| `src/todos.ts` | 会话级持久化待办文档，以及添加待办/生成报告的 Tool |
 | `src/storage.ts` | 给数据库加进程锁，防止重复启动破坏会话状态 |
 | `src/auth.ts` | 通过 Pi 官方接口接入 ChatGPT 订阅 |
 | `src/inspect.ts` | 只读查询 SQLite 的记录数量、提交状态和对话文本 |
@@ -81,9 +82,11 @@ npm start
 
 每次调用都作为 SQLite 中独立的持久化任务保存；读取时钟没有外部副作用，因此异常恢复时允许安全重试。
 
-## Skill：时间意识
+## Skill：Todo report
 
-项目 Skill 放在 `skills/<name>/SKILL.md`，遵循 Agent Skills 的 frontmatter 格式。启动时会显示 `已加载 Skill：time-awareness`；该 Skill 的完整规则会作为持久化会话的系统提示加载，并要求当前时间或日期的问题先调用 `get_current_time`。由于本示例没有文件读取工具，Skill 说明在启动时加载，而不是由模型按需读取。
+项目 Skill 放在 `skills/<name>/SKILL.md`，遵循 Agent Skills 的 frontmatter 格式。启动时会显示 `已加载 Skill：todo-report`；该 Skill 的完整规则会作为持久化会话的系统提示加载。它规定“新增待办”时使用 `add_todo`，“请求待办报告”时使用 `todo_report`，并且不允许脱离工具结果虚构任务状态。
+
+例如依次输入“帮我记一个待办：整理演示文档”和“给我待办报告”。两个 Tool 都会显示实时调用；待办数据保存于对应会话的 SQLite 文档中，退出并恢复该会话后仍可继续报告。由于本示例没有文件读取工具，Skill 说明在启动时加载，而不是由模型按需读取。
 
 当前阶段**不会**开放执行命令、读写文件或网络访问。输入 `/exit`、按 Ctrl+C 或 Ctrl+D 可退出。两分钟超时只针对正在等待的单次回复，阅读历史和等待输入时不会自动退出。长任务被强制终止后的 `resume()` 恢复验证属于视频第四阶段，尚未覆盖。
 
