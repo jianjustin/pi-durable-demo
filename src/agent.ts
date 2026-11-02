@@ -1,7 +1,8 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { contentText, type Models } from "@earendil-works/pi-ai";
-import { AssistantEntry, createRegistry, Harness, type Conversation, type Cursor } from "@earendil-works/pi-durable";
+import { AssistantEntry, createRegistry, defineExtension, Harness, type Conversation, type Cursor } from "@earendil-works/pi-durable";
 import { openExclusiveStorage } from "./storage.ts";
+import { getCurrentTime } from "./tools.ts";
 
 export const context = BACKGROUND_CONTEXT;
 
@@ -14,8 +15,10 @@ const agentSettings = (provider: string, modelId: string) => ({
   model: { provider, modelId },
   thinkingLevel: "low" as const,
   instructions: "你是一个简洁、准确的中文助手。根据已有对话回答；没有工具时，不声称已经执行外部操作。",
-  tools: [],
+  tools: [getCurrentTime],
 });
+
+const DemoTools = defineExtension({ name: "demo-tools", tools: [getCurrentTime] });
 
 export async function readHistory(conversation: Conversation) {
   const history: { role: "user" | "assistant"; text: string }[] = [];
@@ -52,9 +55,11 @@ export async function openAgent(
   const storage = await openExclusiveStorage(dbPath);
   let harness: Harness | undefined;
   try {
+    const registry = createRegistry();
+    registry.install(DemoTools);
     harness = await Harness.open(storage, {
       models,
-      registry: createRegistry(),
+      registry,
       settings: { retry: { maxRetries: 1 } },
     }, context);
     const settings = agentSettings(provider, modelId);

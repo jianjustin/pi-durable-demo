@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { Readable, Writable } from "node:stream";
 import { contentText, createModels, InMemoryCredentialStore } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { context, openAgent, readHistory, sendMessage } from "../src/agent.ts";
 import { createSubscriptionModels } from "../src/auth.ts";
 import { runTerminal } from "../src/terminal.ts";
@@ -128,6 +128,37 @@ test("可以新开独立会话，并按编号恢复指定会话", async () => {
       assert.equal(restored.conversation.id, secondId);
     } finally {
       await restored.harness.close(context);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("模型可以调用无副作用的当前时间工具，并得到工具结果后继续回答", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-durable-tool-"));
+  const dbPath = join(dir, "session.sqlite");
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  try {
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("get_current_time", { timeZone: "Asia/Shanghai" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("现在是上海时间。"),
+    ]);
+    const agent = await openAgent(dbPath, models, model.id, model.provider, { kind: "new" });
+    try {
+      const result = await sendMessage(agent.conversation, "现在几点？");
+      assert.equal(result.answer, "现在是上海时间。");
+      assert.equal(faux.state.callCount, 2, "工具结果应触发模型继续回答");
+      const db = new DatabaseSync(dbPath, { readOnly: true });
+      try {
+        assert.equal(db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE json_extract(record, '$.kind') = 'pi.tool'").get()?.n, 1);
+      } finally {
+        db.close();
+      }
+    } finally {
+      await agent.harness.close(context);
     }
   } finally {
     await rm(dir, { recursive: true, force: true });
