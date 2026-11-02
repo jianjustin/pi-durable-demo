@@ -12,6 +12,7 @@ import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/provid
 import { context, openAgent, readHistory, sendMessage } from "../src/agent.ts";
 import { createSubscriptionModels } from "../src/auth.ts";
 import { runTerminal } from "../src/terminal.ts";
+import { chooseConversation, listSavedConversations } from "../src/sessions.ts";
 import { openExclusiveStorage } from "../src/storage.ts";
 
 test("同一数据库拒绝其他进程和符号链接重复打开，关闭后可重新进入", async () => {
@@ -88,6 +89,45 @@ test("SQLite 重开后保留同一会话、历史上下文，并去重相同 req
       assert.equal(db.prepare("SELECT COUNT(*) AS n FROM entries WHERE json_extract(record, '$.kind') IN ('pi.user', 'pi.assistant')").get()?.n, 4);
     } finally {
       db.close();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("可以新开独立会话，并按编号恢复指定会话", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-durable-sessions-"));
+  const dbPath = join(dir, "session.sqlite");
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  try {
+    const first = await openAgent(dbPath, models, model.id, model.provider, { kind: "new" });
+    const firstId = first.conversation.id;
+    await first.harness.close(context);
+    const second = await openAgent(dbPath, models, model.id, model.provider, { kind: "new" });
+    const secondId = second.conversation.id;
+    await second.harness.close(context);
+    assert.notEqual(firstId, secondId);
+
+    const saved = listSavedConversations(dbPath);
+    assert.deepEqual(saved.map((item) => item.id), [firstId, secondId]);
+    let output = "";
+    const stream = new Writable({ write(chunk, _encoding, callback) { output += chunk.toString(); callback(); } });
+    async function* selections() {
+      yield "2\n";
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      yield "2\n";
+    }
+    const choice = await chooseConversation(saved, { input: Readable.from(selections()), output: stream });
+    assert.deepEqual(choice, { kind: "existing", conversationId: secondId });
+    assert.match(output, new RegExp(`会话 ${firstId}`));
+    const restored = await openAgent(dbPath, models, model.id, model.provider, choice);
+    try {
+      assert.equal(restored.conversation.id, secondId);
+    } finally {
+      await restored.harness.close(context);
     }
   } finally {
     await rm(dir, { recursive: true, force: true });

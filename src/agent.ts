@@ -5,6 +5,18 @@ import { openExclusiveStorage } from "./storage.ts";
 
 export const context = BACKGROUND_CONTEXT;
 
+export type ConversationChoice =
+  | { kind: "root" }
+  | { kind: "new" }
+  | { kind: "existing"; conversationId: Conversation["id"] };
+
+const agentSettings = (provider: string, modelId: string) => ({
+  model: { provider, modelId },
+  thinkingLevel: "low" as const,
+  instructions: "你是一个简洁、准确的中文助手。根据已有对话回答；没有工具时，不声称已经执行外部操作。",
+  tools: [],
+});
+
 export async function readHistory(conversation: Conversation) {
   const history: { role: "user" | "assistant"; text: string }[] = [];
   let cursor: Cursor | undefined;
@@ -27,7 +39,13 @@ export async function readHistory(conversation: Conversation) {
   return history;
 }
 
-export async function openAgent(dbPath: string, models: Models, modelId: string, provider = "openai") {
+export async function openAgent(
+  dbPath: string,
+  models: Models,
+  modelId: string,
+  provider = "openai",
+  choice: ConversationChoice = { kind: "root" },
+) {
   if (!models.getModel(provider, modelId)) {
     throw new Error(`模型不在当前 Pi 版本的目录中：${provider}/${modelId}`);
   }
@@ -39,13 +57,18 @@ export async function openAgent(dbPath: string, models: Models, modelId: string,
       registry: createRegistry(),
       settings: { retry: { maxRetries: 1 } },
     }, context);
-    const conversation = await harness.root(context);
-    await conversation.configure({
-      model: { provider, modelId },
-      thinkingLevel: "low",
-      instructions: "你是一个简洁、准确的中文助手。根据已有对话回答；没有工具时，不声称已经执行外部操作。",
-      tools: [],
-    }, context);
+    const settings = agentSettings(provider, modelId);
+    let conversation;
+    if (choice.kind === "root") {
+      conversation = await harness.root(context, { agent: settings });
+    } else if (choice.kind === "new") {
+      conversation = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: settings }, context);
+    } else {
+      conversation = await harness.conversation(choice.conversationId, context);
+      if (!conversation) throw new Error(`找不到会话 ${choice.conversationId}，请重新选择。`);
+    }
+    // Existing conversations keep their transcript but use the current local model configuration.
+    await conversation.configure(settings, context);
     return { harness, conversation };
   } catch (error) {
     if (harness) await harness.close(context);
