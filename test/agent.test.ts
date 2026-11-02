@@ -169,6 +169,32 @@ test("模型可以调用无副作用的当前时间工具，并得到工具结�
   }
 });
 
+test("项目 Skill 会作为持久化会话的系统提示加载", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-durable-skills-"));
+  const dbPath = join(dir, "session.sqlite");
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  let requestTranscript = "";
+  try {
+    faux.setResponses([(transcript) => {
+      requestTranscript = JSON.stringify(transcript.messages);
+      return fauxAssistantMessage("Skill 已加载。 ");
+    }]);
+    const agent = await openAgent(dbPath, models, model.id, model.provider, { kind: "new" });
+    try {
+      assert.equal((await sendMessage(agent.conversation, "请确认你的能力。")).answer, "Skill 已加载。 ");
+      assert.match(requestTranscript, /<skill name=\\"time-awareness\\">/);
+      assert.match(requestTranscript, /call `get_current_time` before answering/);
+    } finally {
+      await agent.harness.close(context);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("缺少 OAuth 或只有 API key 时拒绝运行，不切换计费方式", async () => {
   const credentials = new InMemoryCredentialStore();
   await assert.rejects(createSubscriptionModels({ credentials }), /ChatGPT 订阅登录/);

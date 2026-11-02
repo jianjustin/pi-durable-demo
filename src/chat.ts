@@ -16,6 +16,7 @@ async function main() {
     onToolStart: (name, args) => console.log(`工具 > 正在调用 ${name}(${JSON.stringify(args)})`),
   });
   console.log(`ChatGPT 订阅 · ${modelId}`);
+  console.log("已加载 Skill：time-awareness");
   await runTerminal(harness, conversation, { prompt });
 }
 

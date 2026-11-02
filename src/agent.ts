@@ -1,7 +1,8 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { contentText, type Models } from "@earendil-works/pi-ai";
-import { AssistantEntry, createRegistry, defineExtension, Harness, hook, ToolTask, type Conversation, type Cursor } from "@earendil-works/pi-durable";
+import { AssistantEntry, createRegistry, defineExtension, Harness, hook, section, ToolTask, type Conversation, type Cursor } from "@earendil-works/pi-durable";
 import { openExclusiveStorage } from "./storage.ts";
+import { loadProjectSkillInstructions } from "./skills.ts";
 import { getCurrentTime } from "./tools.ts";
 
 export const context = BACKGROUND_CONTEXT;
@@ -14,7 +15,7 @@ export type ConversationChoice =
 const agentSettings = (provider: string, modelId: string) => ({
   model: { provider, modelId },
   thinkingLevel: "low" as const,
-  instructions: "你是一个简洁、准确的中文助手。根据已有对话回答；没有工具时，不声称已经执行外部操作。用户询问当前时间或日期时，必须调用 get_current_time，不要凭空估计。",
+  instructions: "你是一个简洁、准确的中文助手。根据已有对话回答；没有工具时，不声称已经执行外部操作。",
   tools: [getCurrentTime],
 });
 
@@ -31,6 +32,11 @@ const createDemoTools = (onToolStart?: OpenAgentOptions["onToolStart"]) => defin
       return undefined;
     },
   })],
+});
+
+const createProjectSkills = (instructions: string) => defineExtension({
+  name: "project-skills",
+  sections: [section("skills", () => instructions)],
 });
 
 export async function readHistory(conversation: Conversation) {
@@ -70,6 +76,7 @@ export async function openAgent(
   let harness: Harness | undefined;
   try {
     const registry = createRegistry();
+    registry.install(createProjectSkills(await loadProjectSkillInstructions()));
     registry.install(createDemoTools(options.onToolStart));
     harness = await Harness.open(storage, {
       models,
